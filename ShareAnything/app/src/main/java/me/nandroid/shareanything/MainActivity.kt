@@ -1,20 +1,19 @@
 package me.nandroid.shareanything
 
-import android.content.ClipboardManager
-import android.content.Context
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.text.ClickableText
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import me.nandroid.shareanything.ui.theme.ShareAnythingTheme
 
 
@@ -32,12 +31,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun Greeting() {
-        ClickableText(text = AnnotatedString("Start server"), onClick = {
-            viewModel.startServer("hello")
-        })
+        Column {
+            var content by remember { mutableStateOf("Hello") }
+            var serverStatus by remember { mutableStateOf("Start Server") }
+            TextField(modifier = Modifier.fillMaxWidth(), onValueChange = {
+                content = it
+            }, value = content)
+            Button(
+                modifier = Modifier
+                    .fillMaxWidth(0.5f)
+                    .padding(vertical = 20.dp)
+                    .align(Alignment.CenterHorizontally),
+                onClick = {
+                    serverStatus = "Server running..."
+                    viewModel.startServer(content)
+                }) {
+                Text(text = serverStatus)
+            }
+        }
     }
+
     @Preview(showBackground = true)
     @Composable
     fun DefaultPreview() {
