@@ -7,9 +7,13 @@ import android.os.Parcelable
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
@@ -31,7 +35,7 @@ class MainActivity : ComponentActivity() {
             ShareAnythingTheme {
                 // A surface container using the 'background' color from the theme
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    Greeting()
+                    ShareAnything()
                     handleSharingFromOtherApps(intent)
                 }
             }
@@ -42,22 +46,23 @@ class MainActivity : ComponentActivity() {
         when (intent?.action) {
             Intent.ACTION_SEND -> {
                 if ("text/plain" == intent.type) {
-                    handleSendText(intent) // Handle text being sent
+                    handleSendText(intent)
                 } else if (intent.type?.startsWith("image/") == true) {
-                    handleSendImage(intent) // Handle single image being sent
+                    handleSendImage(intent)
                 } else if (intent.type?.startsWith("video/") == true) {
-                    handleSendVideo(intent) // Handle single image being sent
+                    handleSendVideo(intent)
                 }
+                lifecycleScope.launch(Dispatchers.IO) { startServer() }
             }
             Intent.ACTION_SEND_MULTIPLE -> {
                 if (intent.type?.startsWith("image/") == true) {
-                    handleSendMultipleImages(intent) // Handle multiple images being sent
+                    handleSendMultipleImages(intent)
                 } else if (intent.type?.startsWith("video/") == true) {
-                    handleSendMultipleVideos(intent) // Handle single image being sent
+                    handleSendMultipleVideos(intent)
                 }
+                lifecycleScope.launch(Dispatchers.IO) { startServer() }
             }
             else -> {
-                // Handle other intents, such as being started from the home screen
             }
         }
     }
@@ -93,7 +98,6 @@ class MainActivity : ComponentActivity() {
 
     private fun handleSendMultipleVideos(intent: Intent) {
         intent.getParcelableArrayListExtra<Parcelable>(Intent.EXTRA_STREAM)?.let { images ->
-
         }
     }
 
@@ -103,17 +107,16 @@ class MainActivity : ComponentActivity() {
         data class Error(val msg: String) : ServerStatus(msg)
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun Greeting() {
-        Column {
+    fun ShareAnything() {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
             TextInputField()
             Button(modifier =
             Modifier
                 .fillMaxWidth(0.5f)
                 .padding(vertical = 20.dp)
                 .align(Alignment.CenterHorizontally),
-                onClick = { lifecycleScope.launch(Dispatchers.IO) { startServer() } }) {
+                onClick = { lifecycleScope.launch(Dispatchers.IO) { toggleServerState() } }) {
                 Text(text = viewModel.currentStatus.statusMessage)
             }
         }
@@ -122,24 +125,40 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun TextInputField() {
-        TextField(modifier = Modifier.fillMaxWidth(), onValueChange = {
-            viewModel.content = it
-        }, value = viewModel.content, maxLines = 5)
+        OutlinedTextField(
+            modifier = Modifier.fillMaxWidth(),
+            colors = TextFieldDefaults.textFieldColors(containerColor = MaterialTheme.colorScheme.background),
+            shape = RoundedCornerShape(12.dp),
+            onValueChange = {
+                viewModel.content = it
+            },
+            label = { Text(text = "Content")},
+            placeholder = { Text(text = "Content goes here...")},
+            value = viewModel.content,
+            maxLines = 5
+        )
     }
 
-    private suspend fun startServer() {
+    private suspend fun toggleServerState() {
         try {
-            val isRunning = viewModel.currentStatus !is ServerStatus.Running
-            if (isRunning) {
-                val wifiIPAddress = getIPAddress(true)
-                viewModel.currentStatus = ServerStatus.Running("Server running at $wifiIPAddress")
-                viewModel.startServer()
+            val isNotRunning = viewModel.currentStatus !is ServerStatus.Running
+            if (isNotRunning) {
+                startServer()
             } else {
                 viewModel.stopServer()
                 viewModel.currentStatus = ServerStatus.Stopped("Start Server")
             }
         } catch (e: Exception) {
             viewModel.currentStatus = ServerStatus.Error(e.message.toString())
+        }
+    }
+
+    private suspend fun startServer() {
+        val isNotRunning = viewModel.currentStatus !is ServerStatus.Running
+        if (isNotRunning) {
+            val wifiIPAddress = getIPAddress(true)
+            viewModel.currentStatus = ServerStatus.Running("Server running at $wifiIPAddress")
+            viewModel.startServer()
         }
     }
 
@@ -174,7 +193,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun DefaultPreview() {
         ShareAnythingTheme {
-            Greeting()
+            ShareAnything()
         }
     }
 }
