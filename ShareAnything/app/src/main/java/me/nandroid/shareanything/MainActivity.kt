@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Parcelable
+import android.webkit.MimeTypeMap
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -13,7 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
@@ -22,6 +23,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import me.nandroid.shareanything.ui.theme.ShareAnythingTheme
+import java.io.File
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.*
@@ -35,70 +37,52 @@ class MainActivity : ComponentActivity() {
             ShareAnythingTheme {
                 // A surface container using the 'background' color from the theme
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    ShareAnything()
-                    handleSharingFromOtherApps(intent)
+                    ShareAnything(intent.toShareAnythingData())
                 }
             }
         }
     }
 
-    private fun handleSharingFromOtherApps(intent: Intent?) {
-        when (intent?.action) {
-            Intent.ACTION_SEND -> {
-                if ("text/plain" == intent.type) {
-                    handleSendText(intent)
-                } else if (intent.type?.startsWith("image/") == true) {
-                    handleSendImage(intent)
-                } else if (intent.type?.startsWith("video/") == true) {
-                    handleSendVideo(intent)
-                }
-                lifecycleScope.launch(Dispatchers.IO) { startServer() }
-            }
-            Intent.ACTION_SEND_MULTIPLE -> {
-                if (intent.type?.startsWith("image/") == true) {
-                    handleSendMultipleImages(intent)
-                } else if (intent.type?.startsWith("video/") == true) {
-                    handleSendMultipleVideos(intent)
-                }
-                lifecycleScope.launch(Dispatchers.IO) { startServer() }
-            }
-            else -> {
-            }
-        }
-    }
-
-    private fun handleSendText(intent: Intent) {
-        intent.getStringExtra(Intent.EXTRA_TEXT)?.let {
-            viewModel.content = it
-        }
+    private fun getTextFromIntent(intent: Intent): String? {
+        return intent.getStringExtra(Intent.EXTRA_TEXT)
     }
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-        handleSharingFromOtherApps(intent)
     }
 
-    private fun handleSendImage(intent: Intent) {
-        (intent.getParcelableExtra<Parcelable>(Intent.EXTRA_STREAM) as? Uri)?.let {
-
+    private fun getImageClipDataContent(intent: Intent): File? {
+        return (intent.getParcelableExtra<Parcelable>(Intent.EXTRA_STREAM) as? Uri)?.let { uri ->
+            return@let createTemporaryFileFromUri(uri)
         }
     }
 
-    private fun handleSendMultipleImages(intent: Intent) {
-        intent.getParcelableArrayListExtra<Parcelable>(Intent.EXTRA_STREAM)?.let { images ->
-
+    private fun getVideoClipDataContent(intent: Intent): File? {
+        return (intent.getParcelableExtra<Parcelable>(Intent.EXTRA_STREAM) as? Uri)?.let { uri ->
+            return@let createTemporaryFileFromUri(uri)
         }
     }
 
-    private fun handleSendVideo(intent: Intent) {
-        (intent.getParcelableExtra<Parcelable>(Intent.EXTRA_STREAM) as? Uri)?.let {
-
+    private fun createTemporaryFileFromUri(uri: Uri): File? {
+        val fileExtension = getFileExtension(uri)
+        val temporaryFile = File.createTempFile("${System.currentTimeMillis()}", ".$fileExtension")
+        temporaryFile.deleteOnExit()
+        return applicationContext.contentResolver.openInputStream(uri)?.use {
+            it.copyTo(temporaryFile.outputStream())
+            return@use temporaryFile
         }
     }
 
-    private fun handleSendMultipleVideos(intent: Intent) {
-        intent.getParcelableArrayListExtra<Parcelable>(Intent.EXTRA_STREAM)?.let { images ->
+    private fun getFileExtension(uri: Uri) = MimeTypeMap.getSingleton().getExtensionFromMimeType(applicationContext.contentResolver.getType(uri))
+
+    private fun getAllFiles(intent: Intent): List<File> {
+        val images = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.let { images ->
+            return@let images
         }
+        val files = images?.map {
+            createTemporaryFileFromUri(it)
+        }
+        return files?.filterNotNull() ?: emptyList()
     }
 
     sealed class ServerStatus(var statusMessage: String) {
@@ -108,7 +92,14 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun ShareAnything() {
+    fun ShareAnything(data: ShareAnythingData) {
+        if (data !is ShareAnythingData.ShareAnythingEmpty) {
+            LaunchedEffect(key1 = Unit, block = {
+                lifecycleScope.launch(Dispatchers.IO){
+                    startServer()
+                }
+            })
+        }
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
             TextInputField()
             Button(modifier =
@@ -132,16 +123,40 @@ class MainActivity : ComponentActivity() {
             onValueChange = {
                 viewModel.content = it
             },
-            label = { Text(text = "Content")},
-            placeholder = { Text(text = "Content goes here...")},
+            label = { Text(text = "Content") },
+            placeholder = { Text(text = "Content goes here...") },
             value = viewModel.content,
             maxLines = 5
         )
     }
 
+    private fun Intent.toShareAnythingData(): ShareAnythingData {
+        when (this.action) {
+            Intent.ACTION_SEND -> {
+                if (this.type == "text/plain") {
+                    val textFromIntent = getTextFromIntent(this)
+                    return if (textFromIntent == null) return ShareAnythingData.ShareAnythingEmpty else ShareAnythingData.ShareAnythingText(
+                        textFromIntent
+                    )
+                } else if (this.type?.startsWith("image/") == true) {
+                    val file = getImageClipDataContent(this)
+                    return if (file == null) return ShareAnythingData.ShareAnythingEmpty else ShareAnythingData.ShareAnythingFile(file)
+                } else if (this.type?.startsWith("video/") == true) {
+                    val file = getVideoClipDataContent(this)
+                    return if (file == null) return ShareAnythingData.ShareAnythingEmpty else ShareAnythingData.ShareAnythingFile(file)
+                }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val files = getAllFiles(this).map { ShareAnythingData.ShareAnythingFile(it) }
+                return ShareAnythingData.ShareAnythingMultipleFiles(files)
+            }
+        }
+        return ShareAnythingData.ShareAnythingEmpty
+    }
+
     private suspend fun toggleServerState() {
         try {
-            val isNotRunning = viewModel.currentStatus !is ServerStatus.Running
+            val isNotRunning = viewModel.isServerRunning
             if (isNotRunning) {
                 startServer()
             } else {
@@ -154,46 +169,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private suspend fun startServer() {
-        val isNotRunning = viewModel.currentStatus !is ServerStatus.Running
-        if (isNotRunning) {
-            val wifiIPAddress = getIPAddress(true)
-            viewModel.currentStatus = ServerStatus.Running("Server running at $wifiIPAddress")
-            viewModel.startServer()
-        }
-    }
-
-    private fun getIPAddress(useIPv4: Boolean): String? {
-        try {
-            val interfaces: List<NetworkInterface> = Collections.list(NetworkInterface.getNetworkInterfaces())
-            for (networkInterface in interfaces) {
-                val addresses: List<InetAddress> = Collections.list(networkInterface.inetAddresses)
-                for (address in addresses) {
-                    if (!address.isLoopbackAddress) {
-                        val hostAddress = address.hostAddress
-                        val isIPv4 = (hostAddress?.indexOf(':') ?: return null) < 0
-                        if (useIPv4) {
-                            if (isIPv4) return hostAddress
-                        } else {
-                            if (!isIPv4) {
-                                val delimiter = hostAddress.indexOf('%') // drop ip6 zone suffix
-                                return if (delimiter < 0) hostAddress.uppercase(Locale.getDefault()) else hostAddress.substring(0, delimiter)
-                                    .uppercase(Locale.getDefault())
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (ex: Exception) {
-            ex.printStackTrace()
-        } // for now eat exceptions
-        return ""
+        val wifiIPAddress = viewModel.getIPAddress(true)
+        viewModel.currentStatus = ServerStatus.Running("Server running at $wifiIPAddress")
+        viewModel.startServer()
     }
 
     @Preview(showBackground = true)
     @Composable
     fun DefaultPreview() {
         ShareAnythingTheme {
-            ShareAnything()
+            ShareAnything(intent.toShareAnythingData())
         }
     }
 }
