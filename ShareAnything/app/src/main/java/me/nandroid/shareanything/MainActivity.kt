@@ -1,6 +1,7 @@
 package me.nandroid.shareanything
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.os.Parcelable
@@ -8,24 +9,30 @@ import android.webkit.MimeTypeMap
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import me.nandroid.shareanything.ui.theme.ShareAnythingTheme
 import java.io.File
-import java.net.InetAddress
-import java.net.NetworkInterface
 import java.util.*
 
 
@@ -35,7 +42,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             ShareAnythingTheme {
-                // A surface container using the 'background' color from the theme
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     ShareAnything(intent.toShareAnythingData())
                 }
@@ -45,10 +51,6 @@ class MainActivity : ComponentActivity() {
 
     private fun getTextFromIntent(intent: Intent): String? {
         return intent.getStringExtra(Intent.EXTRA_TEXT)
-    }
-
-    override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
     }
 
     private fun getImageClipDataContent(intent: Intent): File? {
@@ -75,7 +77,7 @@ class MainActivity : ComponentActivity() {
 
     private fun getFileExtension(uri: Uri) = MimeTypeMap.getSingleton().getExtensionFromMimeType(applicationContext.contentResolver.getType(uri))
 
-    private fun getAllFiles(intent: Intent): List<File> {
+    private fun getAllFilesFromIntent(intent: Intent): List<File> {
         val images = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.let { images ->
             return@let images
         }
@@ -93,13 +95,6 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun ShareAnything(data: ShareAnythingData) {
-        if (data !is ShareAnythingData.ShareAnythingEmpty) {
-            LaunchedEffect(key1 = Unit, block = {
-                lifecycleScope.launch(Dispatchers.IO){
-                    startServer()
-                }
-            })
-        }
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
             TextInputField()
             Button(modifier =
@@ -110,8 +105,47 @@ class MainActivity : ComponentActivity() {
                 onClick = { lifecycleScope.launch(Dispatchers.IO) { toggleServerState() } }) {
                 Text(text = viewModel.currentStatus.statusMessage)
             }
+            if (data !is ShareAnythingData.ShareAnythingEmpty) {
+                LaunchedEffect(key1 = Unit, block = {
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        startServer()
+                    }
+                })
+                ShowFileThumbnails(data)
+            }
         }
     }
+
+    @Composable
+    private fun ShowFileThumbnails(data: ShareAnythingData) {
+
+        if (data is ShareAnythingData.ShareAnythingText) {
+            viewModel.content = data.data
+        } else if (data is ShareAnythingData.ShareAnythingFile) {
+            GeneratePreview(data)
+        } else if (data is ShareAnythingData.ShareAnythingMultipleFiles) {
+            LazyVerticalGrid(columns = GridCells.Fixed(2), content = {
+                items(data.data) {
+                    GeneratePreview(it)
+                }
+            })
+        }
+    }
+
+    @Composable
+    private fun GeneratePreview(data: ShareAnythingData.ShareAnythingFile) {
+        val resource = if (MimeTypeMap.getSingleton().getMimeTypeFromExtension(data.data.extension)?.contains("image/") == true) {
+            BitmapFactory.decodeFile(data.data.path).asImageBitmap()
+        } else {
+            if (MimeTypeMap.getSingleton().getMimeTypeFromExtension(data.data.extension)?.contains("video/") == true) {
+                ContextCompat.getDrawable(LocalContext.current, R.drawable.ic_launcher_foreground)?.toBitmap()?.asImageBitmap()
+            } else {
+                ContextCompat.getDrawable(LocalContext.current, R.drawable.ic_launcher_foreground)?.toBitmap()?.asImageBitmap()
+            }
+        }
+        Image(bitmap = resource!!, contentDescription = data.data.name, Modifier.height(100.dp), contentScale = ContentScale.Crop)
+    }
+
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
@@ -147,7 +181,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             Intent.ACTION_SEND_MULTIPLE -> {
-                val files = getAllFiles(this).map { ShareAnythingData.ShareAnythingFile(it) }
+                val files = getAllFilesFromIntent(this).map { ShareAnythingData.ShareAnythingFile(it) }
                 return ShareAnythingData.ShareAnythingMultipleFiles(files)
             }
         }
