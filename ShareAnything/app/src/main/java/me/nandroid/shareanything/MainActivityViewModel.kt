@@ -3,28 +3,73 @@ package me.nandroid.shareanything
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
+import com.github.mustachejava.DefaultMustacheFactory
+import com.github.mustachejava.resolver.FileSystemResolver
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
+import io.ktor.server.mustache.*
 import io.ktor.server.netty.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import java.io.File
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.*
 
-class MainActivityViewModel : ViewModel() {
+
+class MainActivityViewModel(private val app: android.app.Application) : AndroidViewModel(app) {
     var content by mutableStateOf("")
+    var files = mutableListOf<java.io.File>()
     var currentStatus by mutableStateOf<MainActivity.ServerStatus>(MainActivity.ServerStatus.Stopped("Start Server"))
     private var embeddedServer: NettyApplicationEngine? = null
     val isServerRunning
         get() = currentStatus !is MainActivity.ServerStatus.Running
 
+    data class File(val name: String, val size: String)
+
     suspend fun startServer() {
         embeddedServer = embeddedServer(Netty, port = 8080) {
+            try {
+                val copiedFile = File(app.applicationContext.filesDir, "index.hbs")
+                app.applicationContext.assets.open("index.hbs").use { input ->
+                    copiedFile.outputStream().use { output ->
+                        input.copyTo(output, 1024)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            install(Mustache) {
+                mustacheFactory = DefaultMustacheFactory(FileSystemResolver(app.applicationContext.filesDir))
+
+            }
             routing {
                 get("/") {
-                    call.respondText(content)
+                    if (files.isEmpty()) {
+                        call.respondText(content)
+                    } else {
+                        try {
+                            val files = files.map {  file ->
+                                File(file.name, "${(file.length()/1024)}KB")
+                            }
+                            val mustacheResponse = MustacheContent("index.hbs", HashMap<String, List<File>>().apply {
+                                put("files", files)
+                            })
+                            call.respond(mustacheResponse)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+                get("/get") {
+                    val file = files.singleOrNull { it.name == call.request.queryParameters["name"] }
+                    if (file != null){
+                        call.respondFile(file)
+                    }else{
+                        call.respondText { "Unable to find the file daa" }
+                    }
                 }
             }
         }

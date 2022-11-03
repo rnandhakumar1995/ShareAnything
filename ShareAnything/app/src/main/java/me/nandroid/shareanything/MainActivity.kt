@@ -20,10 +20,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -111,6 +109,12 @@ class MainActivity : ComponentActivity() {
                         startServer()
                     }
                 })
+                if(data is ShareAnythingData.ShareAnythingFile){
+                    viewModel.files.add(data.data)
+                }
+                if(data is ShareAnythingData.ShareAnythingMultipleFiles){
+                    viewModel.files.addAll(data.data.map { it.data })
+                }
                 ShowFileThumbnails(data)
             }
         }
@@ -118,17 +122,22 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun ShowFileThumbnails(data: ShareAnythingData) {
-
-        if (data is ShareAnythingData.ShareAnythingText) {
-            viewModel.content = data.data
-        } else if (data is ShareAnythingData.ShareAnythingFile) {
-            GeneratePreview(data)
-        } else if (data is ShareAnythingData.ShareAnythingMultipleFiles) {
-            LazyVerticalGrid(columns = GridCells.Fixed(2), content = {
-                items(data.data) {
-                    GeneratePreview(it)
-                }
-            })
+//        onTrimMemory()
+        when (data) {
+            is ShareAnythingData.ShareAnythingText -> {
+                viewModel.content = data.data
+            }
+            is ShareAnythingData.ShareAnythingFile -> {
+                GeneratePreview(data)
+            }
+            is ShareAnythingData.ShareAnythingMultipleFiles -> {
+                LazyVerticalGrid(columns = GridCells.Fixed(2), content = {
+                    items(data.data) {
+                        GeneratePreview(it)
+                    }
+                })
+            }
+            is ShareAnythingData.ShareAnythingEmpty -> Unit
         }
     }
 
